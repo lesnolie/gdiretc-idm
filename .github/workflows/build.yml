@@ -46,3 +46,37 @@ jobs:
           path: build/
           retention-days: 14
           if-no-files-found: error
+
+  publish-preview:
+    name: Publish preview release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download validated build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gdiretc-idm-*
+          path: artifact-packages
+      - name: Prepare installer assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-files
+          find artifact-packages -type f \( -name '*.dmg' -o -name '*setup*.exe' \) -print -exec cp -v {} release-files/ \;
+          count=$(find release-files -type f | wc -l)
+          test "$count" -ge 3 || { echo "Expected Windows + two macOS installers"; exit 1; }
+          cd release-files
+          sha256sum * > SHA256SUMS
+      - name: Publish a prerelease for manual testing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="preview-${GITHUB_SHA:0:7}"
+          gh release create "$tag" release-files/* \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --title "gdirect IDM preview (${GITHUB_SHA:0:7})" \
+            --notes "Unsigned development preview: Windows x64, macOS Apple Silicon and Intel. Only publicly downloadable Google Drive files; no OAuth needed. Real-world direct IP reachability has not yet been validated. macOS Gatekeeper and Windows SmartScreen may warn. gdirect (GPL-2.0-or-later) source: https://github.com/mizorewww/gdirect/tree/v0.13.2"
