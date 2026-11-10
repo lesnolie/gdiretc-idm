@@ -21,7 +21,11 @@ import (
  "github.com/lesnolie/gdiretc-idm/internal/driveurl"
 )
 
-type savedEndpoint struct {ip string; sni string}
+type savedEndpoint struct {
+ ip string
+ sni string
+ latencyMS int
+}
 type FileInspection struct {
  Name string
  Total int64
@@ -50,9 +54,14 @@ func parseSavedEndpoints(raw string) []savedEndpoint {
   parts:=strings.Split(strings.TrimSpace(line),"\t")
   if len(parts)<3 || parts[1]!="OK" {continue}
   ip:=net.ParseIP(parts[0]);if ip==nil{continue}
+  if strings.Contains(parts[2],"[not Google; ignored]"){continue}
   sni:=""
   if strings.Contains(parts[2],"(SNI g.cn)") {sni="g.cn"}
-  entries=append(entries,savedEndpoint{ip:ip.String(),sni:sni})
+  ms:=-1
+  if fields:=strings.Fields(parts[2]);len(fields)>0{
+   if n,e:=strconv.Atoi(fields[0]);e==nil{ms=n}
+  }
+  entries=append(entries,savedEndpoint{ip:ip.String(),sni:sni,latencyMS:ms})
  }
  return entries
 }
@@ -92,6 +101,164 @@ func safeName(raw string) string {
  if len([]rune(raw))>200{return ""}
  return raw
 }
+
+// normalizeDownloadName is for the local suggestion only. Drive's own file
+// name stays unchanged. Files named "movie.mp4 的副本" have no actual final
+// extension, though the original extension is still visible inside the name.
+var copiedExtension = regexp.MustCompile(`(?i)^(.+)\.([a-z0-9]{2,8})( 的副本(?:[ （(]\d+[）)])?| - copy(?: \(\d+\))?| \(copy\)| 副本)package main
+
+import (
+ "context"
+ "crypto/tls"
+ "errors"
+ "fmt"
+ "html"
+ "io"
+ "mime"
+ "net"
+ "net/http"
+ "net/url"
+ "os/exec"
+ "path/filepath"
+ "regexp"
+ "strconv"
+ "strings"
+ "time"
+
+ "github.com/lesnolie/gdiretc-idm/internal/driveurl"
+)
+
+type savedEndpoint struct {
+ ip string
+ sni string
+ latencyMS int
+}
+type FileInspection struct {
+ Name string
+ Total int64
+}
+func sizeFromHeaders(h http.Header, status int) int64 {
+ if status==http.StatusPartialContent {
+  value:=h.Get("Content-Range")
+  if pos:=strings.LastIndex(value,"/");pos>=0 {
+   n,err:=strconv.ParseInt(strings.TrimSpace(value[pos+1:]),10,64)
+   if err==nil&&n>0{return n}
+  }
+ }
+ if status==http.StatusOK&&!strings.Contains(strings.ToLower(h.Get("Content-Type")),"text/html") {
+  n,err:=strconv.ParseInt(h.Get("Content-Length"),10,64)
+  if err==nil&&n>0{return n}
+ }
+ return 0
+}
+var (
+ metaTag = regexp.MustCompile(`(?is)<meta\b[^>]*>`)
+ attribute = regexp.MustCompile(`(?is)([a-zA-Z0-9_:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+)
+func parseSavedEndpoints(raw string) []savedEndpoint {
+ var entries []savedEndpoint
+ for _,line:=range strings.Split(raw,"\n") {
+  parts:=strings.Split(strings.TrimSpace(line),"\t")
+  if len(parts)<3 || parts[1]!="OK" {continue}
+  ip:=net.ParseIP(parts[0]);if ip==nil{continue}
+  if strings.Contains(parts[2],"[not Google; ignored]"){continue}
+  sni:=""
+  if strings.Contains(parts[2],"(SNI g.cn)") {sni="g.cn"}
+  ms:=-1
+  if fields:=strings.Fields(parts[2]);len(fields)>0{
+   if n,e:=strconv.Atoi(fields[0]);e==nil{ms=n}
+  }
+  entries=append(entries,savedEndpoint{ip:ip.String(),sni:sni,latencyMS:ms})
+ }
+ return entries
+}
+func allowedMetadataHost(host string) bool {
+ host=strings.ToLower(host)
+ return host=="drive.google.com" || host=="drive.usercontent.google.com" || strings.HasSuffix(host,".googleusercontent.com")
+}
+func publicMetadataClient(endpoint savedEndpoint) *http.Client {
+ transport:=&http.Transport{
+  Proxy:nil,
+  DialContext:func(ctx context.Context, network, address string)(net.Conn,error){
+   host,port,err:=net.SplitHostPort(address);if err!=nil{return nil,err}
+   if port!="443"||!allowedMetadataHost(host){return nil,errors.New("metadata redirect is not a Google download host")}
+   return (&net.Dialer{Timeout:6*time.Second}).DialContext(ctx,"tcp",net.JoinHostPort(endpoint.ip,"443"))
+  },
+  TLSHandshakeTimeout:6*time.Second,
+  DisableKeepAlives:true,
+ }
+ if endpoint.sni!=""{
+  transport.TLSClientConfig=&tls.Config{MinVersion:tls.VersionTLS12,ServerName:endpoint.sni}
+ }
+ return &http.Client{
+  Transport:transport,Timeout:15*time.Second,
+  CheckRedirect:func(req *http.Request,via []*http.Request)error{
+   if len(via)>5||req.URL.Scheme!="https"||!allowedMetadataHost(req.URL.Hostname()){return errors.New("untrusted Google Drive redirect")}
+   return nil
+  },
+ }
+}
+func safeName(raw string) string {
+ raw=html.UnescapeString(strings.TrimSpace(raw))
+ raw=strings.ReplaceAll(raw,"\\","/")
+ raw=filepath.Base(raw)
+ raw=strings.Map(func(r rune)rune{if r<32||r==127||strings.ContainsRune(`<>:"/\\|?*`,r){return -1};return r},raw)
+ raw=strings.Trim(raw," .")
+ if raw=="."||raw==".."||raw==""{return ""}
+ if len([]rune(raw))>200{return ""}
+ return raw
+}
+)
+
+var knownExtensions = map[string]bool{
+ "mp4":true,"mov":true,"mkv":true,"m4v":true,"avi":true,"webm":true,
+ "mp3":true,"m4a":true,"flac":true,"wav":true,"aac":true,
+ "jpg":true,"jpeg":true,"png":true,"gif":true,"webp":true,"heic":true,
+ "pdf":true,"zip":true,"7z":true,"rar":true,"tar":true,"gz":true,"iso":true,
+ "apk":true,"dmg":true,"exe":true,"msi":true,"pkg":true,"deb":true,
+ "txt":true,"csv":true,"json":true,"xml":true,"srt":true,"ass":true,
+ "docx":true,"xlsx":true,"pptx":true,
+}
+
+func mimeExtension(contentType string)string{
+ kind,_,err:=mime.ParseMediaType(strings.TrimSpace(contentType))
+ if err!=nil{return ""}
+ switch strings.ToLower(kind){
+ case "video/mp4":return ".mp4"
+ case "video/quicktime":return ".mov"
+ case "video/x-matroska":return ".mkv"
+ case "video/webm":return ".webm"
+ case "video/x-msvideo":return ".avi"
+ case "audio/mpeg":return ".mp3"
+ case "audio/mp4":return ".m4a"
+ case "audio/flac":return ".flac"
+ case "application/pdf":return ".pdf"
+ case "application/zip":return ".zip"
+ case "application/x-7z-compressed":return ".7z"
+ case "application/vnd.rar":return ".rar"
+ case "image/jpeg":return ".jpg"
+ case "image/png":return ".png"
+ case "image/webp":return ".webp"
+ case "text/plain":return ".txt"
+ case "text/csv":return ".csv"
+ case "application/json":return ".json"
+ default:return ""
+ }
+}
+func normalizeDownloadName(raw,contentType string)string{
+ name:=safeName(raw)
+ if name==""{return ""}
+ if match:=copiedExtension.FindStringSubmatch(name);len(match)==4{
+  ext:=strings.ToLower(match[2])
+  if knownExtensions[ext]{
+   return safeName(match[1]+match[3]+"."+ext)
+  }
+ }
+ if filepath.Ext(name)!=""{return name}
+ if ext:=mimeExtension(contentType);ext!=""{return safeName(name+ext)}
+ return name
+}
+
 func nameFromDisposition(value string) string{
  _,params,err:=mime.ParseMediaType(value);if err!=nil{return ""}
  return safeName(params["filename"])
@@ -126,10 +293,10 @@ func fetchPublicInfo(ctx context.Context, ep savedEndpoint, id,key string)(FileI
   if index==0{req.Header.Set("Range","bytes=0-0")}
   resp,err:=client.Do(req);if err!=nil{continue}
   if resp.StatusCode>=200&&resp.StatusCode<300{
-   if name:=nameFromDisposition(resp.Header.Get("Content-Disposition"));name!=""{result:=FileInspection{Name:name,Total:sizeFromHeaders(resp.Header,resp.StatusCode)};resp.Body.Close();return result,nil}
+   if name:=nameFromDisposition(resp.Header.Get("Content-Disposition"));name!=""{result:=FileInspection{Name:normalizeDownloadName(name,resp.Header.Get("Content-Type")),Total:sizeFromHeaders(resp.Header,resp.StatusCode)};resp.Body.Close();return result,nil}
    if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")),"text/html"){
     body,_:=io.ReadAll(io.LimitReader(resp.Body,2<<20))
-    if name:=nameFromHTML(string(body));name!=""{resp.Body.Close();return FileInspection{Name:name},nil}
+    if name:=nameFromHTML(string(body));name!=""{resp.Body.Close();return FileInspection{Name:normalizeDownloadName(name,resp.Header.Get("Content-Type"))},nil}
    }
   }
   resp.Body.Close()
