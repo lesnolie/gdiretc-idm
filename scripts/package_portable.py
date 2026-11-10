@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
-"""Package *portable* MyGo binaries; never include installers or DMGs.
+"""Package Windows as portable ZIP; copy the native macOS drag-to-Applications DMG.
 
-Windows: zip the EXE and the resources beside it, under one folder.
-macOS: zip the complete .app bundle using ditto to preserve bundle metadata,
-executable bits, symlinks, and signing resources.
+MyGo builds the DMG on macOS with an Applications shortcut. Mac users can
+open it and drag the .app over, while Windows remains fully portable.
 """
 from __future__ import annotations
 import argparse
-import os
 from pathlib import Path
-import subprocess
-import sys
 import zipfile
+import shutil
 
 TARGETS = {
     "windows-amd64": ("windows-amd64", "windows", "gdirect-idm-portable-windows-x64.zip"),
-    "darwin-arm64": ("darwin-arm64", "macos", "gdirect-idm-portable-macos-arm64.zip"),
-    "darwin-amd64": ("darwin-amd64", "macos", "gdirect-idm-portable-macos-intel.zip"),
+    "darwin-arm64": ("darwin-arm64", "macos", "gdirect-idm-macos-arm64.dmg"),
+    "darwin-amd64": ("darwin-amd64", "macos", "gdirect-idm-macos-intel.dmg"),
 }
 
 def ensure_helper(root: Path, name: str) -> None:
@@ -46,15 +43,13 @@ def win_package(source: Path, destination: Path) -> None:
 def mac_package(source: Path, destination: Path) -> None:
     bundles = list(source.glob("*.app"))
     if len(bundles) != 1:
-        raise SystemExit(f"Expected exactly one .app in {source}, got {bundles}")
-    application = bundles[0]
-    ensure_helper(application, "gdirect")
-    if sys.platform != "darwin":
-        raise SystemExit("Preserving macOS bundles requires a macOS runner and ditto")
-    subprocess.run(
-        ["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(application), str(destination)],
-        check=True,
-    )
+        raise SystemExit(f"Expected one MyGo .app, found {bundles}")
+    ensure_helper(bundles[0], "gdirect")
+    images = list(source.glob("*.dmg"))
+    if len(images) != 1:
+        raise SystemExit(f"Expected one native MyGo drag-to-Applications DMG, found {images}")
+    shutil.copy2(images[0], destination)
+
 
 def main() -> None:
     p = argparse.ArgumentParser()
@@ -75,7 +70,7 @@ def main() -> None:
         mac_package(source, archive)
     if archive.stat().st_size < 1_000_000:
         raise SystemExit("Portable archive suspiciously small")
-    print(f"Portable archive: {archive}, bytes={archive.stat().st_size}")
+    print(f"Release asset: {archive}, bytes={archive.stat().st_size}")
 
 if __name__ == "__main__":
     main()
