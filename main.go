@@ -133,7 +133,8 @@ func (s *Service) Resume(id string) (Task,error) {
 }
 func (s *Service) ShowInFolder(path string) error {
   if _,err:=os.Stat(path);err!=nil{return err}
-  return mygo.Shell.ShowItemInFolder(path)
+  mygo.Shell.ShowItemInFolder(path)
+  return nil
 }
 func main() {
   mygo.Bind(NewService())
