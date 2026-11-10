@@ -201,11 +201,11 @@ func (s *downloadUI) toolbar(c *ui.Context){
  running:=ok&&task.State=="running"
  resumable:=ok&&(task.State=="stopped"||task.State=="failed")
  ui.Toolbar(c,func(){
-  ui.PrimaryButton(c,"＋ 新建任务").OnClick(func(){s.prompt("")})
-  ui.Button(c,"▶ 继续").Disabled(!resumable).OnClick(func(){s.action("resume",task.ID)})
-  ui.Button(c,"Ⅱ 暂停").Disabled(!running).OnClick(func(){s.action("stop",task.ID)})
-  ui.Button(c,"✕ 删除").Disabled(!ok).OnClick(func(){s.askDelete(task.ID,false)})
-  ui.Button(c,"▣ 打开位置").Disabled(!ok).OnClick(func(){s.action("folder",task.ID)})
+  styleTactileButton(ui.Button(c,"＋ 新建任务").OnClick(func(){s.prompt("")}),buttonPrimary,buttonMedium)
+  styleTactileButton(ui.Button(c,"▶ 继续").Disabled(!resumable).OnClick(func(){s.action("resume",task.ID)}),buttonSecondary,buttonMedium)
+  styleTactileButton(ui.Button(c,"Ⅱ 暂停").Disabled(!running).OnClick(func(){s.action("stop",task.ID)}),buttonSecondary,buttonMedium)
+  styleTactileButton(ui.Button(c,"✕ 删除").Disabled(!ok).OnClick(func(){s.askDelete(task.ID,false)}),buttonTertiary,buttonMedium)
+  styleTactileButton(ui.Button(c,"▣ 打开位置").Disabled(!ok).OnClick(func(){s.action("folder",task.ID)}),buttonTertiary,buttonMedium)
   ui.Spacer(c)
   ui.Checkbox(c,&s.watchClipboard,"自动识别 Google 链接")
  }).Label("下载任务操作")
@@ -297,15 +297,15 @@ func (s *downloadUI) dialog(c *ui.Context){
    ui.Text(c,"保存目录")
    ui.Row(c).Gap(8).Children(func(){
     ui.TextInput(c,&s.folder).Grow(1)
-    ui.Button(c,"浏览…").OnClick(s.browse)
+    styleTactileButton(ui.Button(c,"浏览…").OnClick(s.browse),buttonSecondary,buttonMedium)
    })
    if s.inspection.Total>0{
     ui.Text(c,"原文件大小："+fileSize(s.inspection.Total)).TextColor(c.Theme().TextMuted)
    }
    if s.notice!=""{ui.Text(c,s.notice).TextColor(c.Theme().TextMuted)}
    ui.Row(c).Gap(10).Justify(ui.End).Children(func(){
-    ui.Button(c,"取消").OnClick(func(){s.showNew=false;s.inspectionSeq++})
-    ui.PrimaryButton(c,"开始下载").OnClick(s.start)
+    styleTactileButton(ui.Button(c,"取消").OnClick(func(){s.showNew=false;s.inspectionSeq++}),buttonGhost,buttonMedium)
+    styleTactileButton(ui.Button(c,"开始下载").OnClick(s.start),buttonPrimary,buttonLarge)
    })
   })
  })
@@ -319,13 +319,13 @@ func (s *downloadUI) deleteDialog(c *ui.Context){
    if s.deleteWithFiles{msg="确定删除任务，并删除本地文件和断点续传数据？此操作无法撤销。"}
    ui.Text(c,msg)
    ui.Row(c).Justify(ui.End).Gap(8).Children(func(){
-    ui.Button(c,"取消").OnClick(func(){s.showDelete=false})
-    ui.PrimaryButton(c,"删除").OnClick(func(){
+    styleTactileButton(ui.Button(c,"取消").OnClick(func(){s.showDelete=false}),buttonGhost,buttonMedium)
+    styleTactileButton(ui.Button(c,"删除").OnClick(func(){
      id:=s.deleteID
      withFiles:=s.deleteWithFiles
      s.showDelete=false
      if withFiles{s.action("delete-files",id)}else{s.action("delete",id)}
-    })
+    }),buttonPrimary,buttonMedium)
    })
   })
  })
