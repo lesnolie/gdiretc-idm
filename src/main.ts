@@ -8,6 +8,8 @@ let dialogOpen = false;
 let lastClipboard = "";
 let clipboardEnabled = localStorage.getItem("watchClipboard") !== "off";
 let pollBusy = false;
+let filenameRequest = 0;
+let suggestedFilename = "";
 
 app.innerHTML = [
  '<div class="shell">',
@@ -37,15 +39,37 @@ function errorText(reason:unknown) {
 function showDialog(url = "") {
  dialogOpen = true;
  urlInput.value = url; pathInput.value = "";
+ suggestedFilename = ""; pathInput.placeholder = "点击浏览，选择目录并重命名";
+ void inspectFilename(url);
  hint.classList.remove("error");
  hint.textContent = "选择保存位置和文件名称，下载前不会自动执行";
  overlay.classList.remove("hidden"); urlInput.focus();
 }
-function hideDialog() { dialogOpen = false; overlay.classList.add("hidden"); }
+function hideDialog() { dialogOpen = false; filenameRequest++; overlay.classList.add("hidden"); }
+async function inspectFilename(url: string) {
+ const request = ++filenameRequest;
+ suggestedFilename = "";
+ if (!url.trim()) return;
+ hint.classList.remove("error");
+ hint.textContent = "正在读取原文件名（首次使用时可能需要扫描 IP）…";
+ try {
+  const name = await Service.suggestName(url.trim());
+  if (request !== filenameRequest || !dialogOpen || urlInput.value.trim() !== url.trim()) return;
+  suggestedFilename = name;
+  hint.textContent = "已识别原文件名：" + name + "（可在保存窗口修改）";
+  if (!pathInput.value) pathInput.placeholder = "默认名称：" + name;
+ } catch (e) {
+  if (request !== filenameRequest || !dialogOpen) return;
+  hint.textContent = "无法自动读取原文件名，请手动命名并保留扩展名。";
+  console.warn("Filename metadata unavailable",e);
+ }
+}
+urlInput.addEventListener("change", () => { void inspectFilename(urlInput.value); });
+
 el("#add").onclick = () => showDialog();
 el("#cancel").onclick = hideDialog;
 el("#browse").onclick = async () => {
- try { const path=await Service.choosePath("download.bin"); if(path)pathInput.value=path; } catch(e) {errorText(e);}
+ try { const path=await Service.choosePath(suggestedFilename || "GoogleDrive-file"); if(path)pathInput.value=path; } catch(e) {errorText(e);}
 };
 el("#download").onclick = async () => {
  try {
@@ -53,7 +77,7 @@ el("#download").onclick = async () => {
   const url = urlInput.value.trim();
   await Service.validate(url);
   let path = pathInput.value.trim();
-  if(!path){path = await Service.choosePath("download.bin");if(!path)return;pathInput.value=path;}
+  if(!path){path = await Service.choosePath(suggestedFilename || "GoogleDrive-file");if(!path)return;pathInput.value=path;}
   const task = await Service.start(url,path);
   selected=task.id; hideDialog(); await refresh();
  } catch(e) {errorText(e);}
