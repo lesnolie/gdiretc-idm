@@ -20,9 +20,14 @@ type downloadUI struct{
  selected int
  showNew bool
  showDelete bool
+ showRestart bool
+ restartID string
+ showRoute bool
+ routeBusy bool
+ routeChoice string
+ routeCandidates []RouteOption
  deleteWithFiles bool
  deleteID string
- watchClipboard bool
  lastClipboard string
  url string
  filename string
@@ -38,7 +43,7 @@ func newDownloadUI(service *Service)*downloadUI{
  if err!=nil{base="."}
  preferred:=filepath.Join(base,"Downloads")
  if st,err:=os.Stat(preferred);err!=nil||!st.IsDir(){preferred=base}
- return &downloadUI{service:service,selected:-1,watchClipboard:true,folder:preferred}
+ return &downloadUI{service:service,selected:-1,routeChoice:"自动（推荐）",folder:preferred}
 }
 
 func (s *downloadUI) prompt(raw string){
@@ -74,12 +79,84 @@ func (s *downloadUI) inspect(){
  }()
 }
 
+
+func (s *downloadUI) loadRoutes(refresh bool){
+ s.win.Update(func(){s.routeBusy=true})
+ go func(){
+  var options []RouteOption
+  var err error
+  if refresh{options,err=s.service.RefreshRoutes()}else{options,err=s.service.ListRoutes()}
+  s.win.Update(func(){
+   s.routeBusy=false
+   if err!=nil{s.notice="IP 列表获取失败："+err.Error();return}
+   s.routeCandidates=options
+   if s.routeChoice!="自动（推荐）"{
+    exists:=false
+    for _,option:=range options{if routeLabel(option)==s.routeChoice{exists=true;break}}
+    if !exists{s.routeChoice="自动（推荐）"}
+   }
+   s.notice=fmt.Sprintf("已载入 %d 个可选 Google IP",len(options))
+  })
+ }()
+}
+func (s *downloadUI) chosenRoute()RouteOption{
+ for _,option:=range s.routeCandidates{
+  if routeLabel(option)==s.routeChoice{return option}
+ }
+ return RouteOption{}
+}
+func (s *downloadUI) routeModal(c *ui.Context){
+ ui.Modal(c,&s.showRoute,func(){
+  ui.Column(c).Width(520).Gap(10).Children(func(){
+   ui.Text(c,"Google 下载线路").Bold().FontSize(18)
+   ui.Text(c,"自动模式优先使用已验证的低延迟 IP，连接失败还可以切换备用 IP。").TextColor(c.Theme().TextMuted)
+   options:=[]string{"自动（推荐）"}
+   for _,r:=range s.routeCandidates{options=append(options,routeLabel(r))}
+   ui.Text(c,"IP 选择")
+   ui.Select(c,&s.routeChoice,options).Label("选择 Google IP")
+   if s.routeBusy{ui.Progress(c,-1).Label("扫描 Google IP")}
+   if s.routeChoice!="自动（推荐）"{
+    ui.Text(c,"注意：手动固定 IP 不会自动故障切换，测速延迟不代表实际下载速度。").TextColor(c.Theme().TextMuted)
+   }
+   ui.Row(c).Gap(8).Children(func(){
+    styleTactileButton(ui.Button(c,"重新扫描 IP").Disabled(s.routeBusy).OnClick(func(){s.loadRoutes(true)}),buttonSecondary,buttonMedium)
+    ui.Spacer(c)
+    styleTactileButton(ui.Button(c,"应用到选中任务").Disabled(s.selected<0||s.routeBusy).OnClick(func(){
+     if t,ok:=s.selectedTask();ok{
+      if t.State=="complete"{s.notice="已完成的任务无需切换 IP";return}
+      s.showRoute=false
+      s.action("switch-ip",t.ID)
+     }
+    }),buttonSecondary,buttonMedium)
+    styleTactileButton(ui.Button(c,"确定").OnClick(func(){s.showRoute=false}),buttonPrimary,buttonMedium)
+   })
+  })
+ })
+}
+func (s *downloadUI) restartModal(c *ui.Context){
+ ui.Modal(c,&s.showRestart,func(){
+  ui.Column(c).Width(420).Gap(12).Children(func(){
+   ui.Text(c,"重新下载").Bold().FontSize(18)
+   ui.Text(c,"将删除该任务已下载的文件和断点续传记录，从 0% 重新下载。此操作不可撤销。")
+   ui.Row(c).Justify(ui.End).Gap(8).Children(func(){
+    styleTactileButton(ui.Button(c,"取消").OnClick(func(){s.showRestart=false}),buttonGhost,buttonMedium)
+    styleTactileButton(ui.Button(c,"重新下载").OnClick(func(){
+     id:=s.restartID
+     s.showRestart=false
+     s.action("restart",id)
+    }),buttonPrimary,buttonMedium)
+   })
+  })
+ })
+}
+
 func (s *downloadUI) selectedTask()(Task,bool){
  if s.selected<0||s.selected>=len(s.items){return Task{},false}
  return s.items[s.selected],true
 }
 
 func (s *downloadUI) action(kind,id string){
+ route:=s.chosenRoute()
  go func(){
   var err error
   switch kind {
@@ -88,6 +165,8 @@ func (s *downloadUI) action(kind,id string){
   case "open":err=s.service.Open(id)
   case "folder":err=s.service.Reveal(id)
   case "copy":err=s.service.CopyLink(id)
+  case "restart":_,err=s.service.Restart(id)
+  case "switch-ip":_,err=s.service.SwitchRoute(id,route)
   case "delete":err=s.service.Remove(id,false)
   case "delete-files":err=s.service.Remove(id,true)
   }
@@ -128,7 +207,7 @@ func (s *downloadUI) start(){
  folder:=filepath.Clean(strings.TrimSpace(s.folder))
  if folder==""{s.notice="请选择保存目录";return}
  path:=filepath.Join(folder,name)
- task,err:=s.service.Start(raw,path,s.inspection.Total)
+ task,err:=s.service.StartRouted(raw,path,s.inspection.Total,s.chosenRoute())
  if err!=nil{s.notice="无法开始下载："+err.Error();return}
  s.showNew=false;s.selected=0
  s.notice="开始下载："+task.Name
@@ -194,6 +273,8 @@ func (s *downloadUI) view(c *ui.Context){
  })
  s.dialog(c)
  s.deleteDialog(c)
+ s.restartModal(c)
+ s.routeModal(c)
 }
 
 func (s *downloadUI) toolbar(c *ui.Context){
@@ -204,10 +285,11 @@ func (s *downloadUI) toolbar(c *ui.Context){
   styleTactileButton(ui.Button(c,"＋ 新建任务").OnClick(func(){s.prompt("")}),buttonPrimary,buttonMedium)
   styleTactileButton(ui.Button(c,"▶ 继续").Disabled(!resumable).OnClick(func(){s.action("resume",task.ID)}),buttonSecondary,buttonMedium)
   styleTactileButton(ui.Button(c,"Ⅱ 暂停").Disabled(!running).OnClick(func(){s.action("stop",task.ID)}),buttonSecondary,buttonMedium)
+  styleTactileButton(ui.Button(c,"↻ 重新下载").Disabled(!ok).OnClick(func(){s.restartID=task.ID;s.showRestart=true}),buttonSecondary,buttonMedium)
   styleTactileButton(ui.Button(c,"✕ 删除").Disabled(!ok).OnClick(func(){s.askDelete(task.ID,false)}),buttonTertiary,buttonMedium)
   styleTactileButton(ui.Button(c,"▣ 打开位置").Disabled(!ok).OnClick(func(){s.action("folder",task.ID)}),buttonTertiary,buttonMedium)
   ui.Spacer(c)
-  ui.Checkbox(c,&s.watchClipboard,"自动识别 Google 链接")
+  styleTactileButton(ui.Button(c,"线路…").OnClick(func(){s.showRoute=true;s.loadRoutes(false)}),buttonTertiary,buttonMedium)
  }).Label("下载任务操作")
 }
 
@@ -232,6 +314,8 @@ func (s *downloadUI) table(c *ui.Context){
   m.Separator()
   if m.Item("暂停").Disabled(t.State!="running").Chosen(){s.action("stop",t.ID)}
   if m.Item("继续").Disabled(t.State!="stopped"&&t.State!="failed").Chosen(){s.action("resume",t.ID)}
+  if m.Item("重新下载（从头开始）").Chosen(){s.restartID=t.ID;s.showRestart=true}
+  if m.Item("切换为当前选定线路并继续").Disabled(t.State=="complete").Chosen(){s.action("switch-ip",t.ID)}
   m.Separator()
   if m.Item("从列表删除").Chosen(){s.askDelete(t.ID,false)}
   if m.Item("删除任务及本地文件").Chosen(){s.askDelete(t.ID,true)}
@@ -245,10 +329,14 @@ func (s *downloadUI) table(c *ui.Context){
    if t.Total>0{label=fileSize(t.Total)}else if t.State=="complete"{label=fileSize(t.Bytes)}
    ui.Text(c,label).SingleLine()
   case 2:
-   ui.Column(c).Gap(2).Children(func(){
-    p:=progress(t)
-    ui.Progress(c,p).Label("下载进度")
-    if p>=0{ui.Text(c,fmt.Sprintf("%.1f%%",p*100)).FontSize(11).TextColor(c.Theme().TextMuted)}else{ui.Text(c,"大小未知").FontSize(11).TextColor(c.Theme().TextMuted)}
+   p:=progress(t)
+   ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func(){
+    // MyGo Progress takes 0..1, not 0..100; fixed track width keeps
+    // the visual fill aligned with the displayed percentage in every row.
+    ui.Progress(c,p).Width(96).Label("下载进度")
+    label:="未知"
+    if p>=0{label=fmt.Sprintf("%.0f%%",p*100)}
+    ui.Text(c,label).FontSize(11).TextColor(c.Theme().TextMuted).SingleLine()
    })
   case 3:
    state:=statusName(t.State)
@@ -278,6 +366,7 @@ func (s *downloadUI) footer(c *ui.Context){
  ui.Row(c).Gap(16).Padding(3).Children(func(){
   ui.Text(c,fmt.Sprintf("总任务 %d  ·  下载中 %d",len(s.items),active)).TextColor(c.Theme().TextMuted)
   ui.Text(c,"总速度 "+fileSize(int64(speed))+"/s").TextColor(c.Theme().TextMuted)
+  ui.Text(c,"线路："+s.routeChoice).TextColor(c.Theme().TextMuted).SingleLine()
   ui.Spacer(c)
   if s.notice!=""{ui.Text(c,s.notice).SingleLine().TextColor(c.Theme().TextMuted)}
  })
