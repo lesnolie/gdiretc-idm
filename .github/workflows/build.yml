@@ -1,7 +1,7 @@
 name: Preview builds
 on:
   push:
-    branches: [main, feat/portable-tactile-v03]
+    branches: [main, feat/v04-download-polish]
   workflow_dispatch:
 
 concurrency:
@@ -80,5 +80,5 @@ jobs:
         run: |
           tag="preview-${GITHUB_SHA:0:7}"
           gh release create "$tag" release-files/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-            --title "gdirect IDM Native v0.3 Portable Windows + Mac DMG Preview" \
-            --notes "Windows is portable ZIP (extract and run EXE); macOS uses a native drag-to-Applications DMG (no Windows Setup installer). MyGo Native UI with neutral tactile button states, right-click/remove, progress, tray, and gdirect anonymous public-file downloads. Windows builds may display SmartScreen; unsigned/unnotarized macOS preview may need Open Anyway. End-to-end transfers still require device testing."
+            --title "gdirect IDM Native v0.4 Preview" \
+            --notes "Windows is portable ZIP (extract and run EXE); macOS uses a native drag-to-Applications DMG (no Windows Setup installer). MyGo Native UI with properly scaled progress, fixed copied-file extensions, default clipboard monitoring, restart downloads, and cached Google IP selection/switching. Windows builds may display SmartScreen; unsigned/unnotarized macOS preview may need Open Anyway. End-to-end transfers still require device testing."
