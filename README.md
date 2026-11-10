@@ -7,7 +7,7 @@ A native [MyGo](https://mygo.egoist.dev/docs/ui) Google Drive **public-file down
 ## Features (v0.4 preview)
 - Google Drive file URL allowlist (no other providers). Clipboard recognition is always on while running, with no redundant checkbox.
 - Native MyGo toolbar, sortable/scrollable table, context menus, save dialog and Windows/macOS tray.
-- Compact progress track fixed to a consistent width, displaying the same normalized 0–100% as its numerical label. When total size is unknown, progress stays indeterminate.
+- Compact progress track fixed to a consistent width, using **completed aria2 pieces** rather than logical output-file size (parallel range writes make file size misleading). The bar and percentage use the same normalized value; progress advances at aria2 checkpoint intervals. Download speed is read from gdirect's real libaria2 stderr updates. Unknown totals remain indeterminate.
 - Filename suggestions repair Google Drive copy names such as `movie.mp4 的副本` → `movie 的副本.mp4` and use a trusted public download MIME type as an extension hint when available.
 - Direct-only Google endpoint selection by gdirect and SQLite IP caching; no Google login/OAuth for public files.
 - Windows helper processes do not open a console window.
@@ -17,7 +17,7 @@ A native [MyGo](https://mygo.egoist.dev/docs/ui) Google Drive **public-file down
 - Windows x64, macOS Apple Silicon and macOS Intel preview builds.
 
 ### Limitations
-Google's quota/download restrictions and network reachability still apply. Folder links and private files are unsupported. No proxy is configured by this program, but the system routing policy can affect connections. Pausing is process cancellation with aria2 control files preserved for resumption, not an in-process aria2 pause. A transfer's bytes are sampled from the actual growing output file (upstream uses `file-allocation=none`).
+Google's quota/download restrictions and network reachability still apply. Folder links and private files are unsupported. No proxy is configured by this program, but the system routing policy can affect connections. Pausing is process cancellation with aria2 control files preserved for resumption, not an in-process aria2 pause. Progress is conservative between aria2 control-file checkpoints (normally about every five seconds); partial in-flight pieces are not counted until committed. Direct reachability, manual IP switching, and resume require device validation.
 
 ## Windows portable ZIP / macOS drag-to-Applications DMG
 
