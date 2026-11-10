@@ -1,0 +1,117 @@
+name: Publish official v0.4.0
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v0.4.0.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: official-v0.4.0
+  cancel-in-progress: false
+
+jobs:
+  promote-tested-build:
+    name: Verify preview assets, publish stable release and clean old previews
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_TAG: preview-567c9e3
+      SOURCE_SHA: 567c9e36fabb7197a3ada3d56e46a5febaa1d468
+      TEST_RUN_ID: '42762648204'
+      STABLE_TAG: v0.4.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tested source and release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          version = json.loads(Path("mygo.json").read_text(encoding="utf-8"))["version"]
+          if version != "0.4.0":
+              raise SystemExit(f"Expected version 0.4.0, got {version}")
+          PY
+          run_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$TEST_RUN_ID" --jq '.head_sha')"
+          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$TEST_RUN_ID" --jq '.conclusion')"
+          test "$run_sha" = "$SOURCE_SHA"
+          test "$conclusion" = success
+          test "$(gh release view "$SOURCE_TAG" --json isPrerelease --jq .isPrerelease)" = true
+          if gh release view "$STABLE_TAG" >/dev/null 2>&1; then
+            echo "Stable release already exists; refusing to overwrite."
+            exit 1
+          fi
+      - name: Download the three verified packages and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          gh release download "$SOURCE_TAG" --dir release-assets --pattern '*.zip' --pattern '*.dmg' --pattern 'SHA256SUMS'
+          cd release-assets
+          for file in gdirect-idm-portable-windows-x64.zip gdirect-idm-macos-arm64.dmg gdirect-idm-macos-intel.dmg SHA256SUMS; do
+            test -s "$file"
+          done
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 4
+          sha256sum --check SHA256SUMS
+      - name: Write official release notes
+        shell: bash
+        run: |
+          cat > RELEASE_NOTES.md <<'EOF'
+          # gdirect IDM v0.4.0
+
+          First official desktop release. A lightweight Google Drive public-file downloader built with **MyGo native UI** and bundled gdirect.
+
+          **Downloads**
+          - Windows x64: `gdirect-idm-portable-windows-x64.zip` — extract the entire folder and run the EXE. No installer.
+          - Mac Apple Silicon: `gdirect-idm-macos-arm64.dmg` — open DMG and drag the app to Applications.
+          - Mac Intel: `gdirect-idm-macos-intel.dmg` — open DMG and drag the app to Applications.
+
+          **Features**
+          - Copy a public Google Drive file URL for automatic detection and a native save/rename dialog.
+          - Restore file extensions for copied names such as `movie.mp4 的副本`.
+          - Download progress based on aria2 completed pieces and live speed; pause/resume, restart from zero, delete and right-click menus.
+          - Cached IP auto-selection with manual IP switching and rescanning.
+          - Native tray, geometric G icon and tactile desktop controls. Windows helper console is hidden.
+          - No Google account or OAuth setup required for publicly downloadable files.
+
+          **Limitations:** Google quota limits and restricted/private links still apply. Direct connection without a proxy depends on the local network. A manually selected IP may perform worse than automatic selection. The app is not code-signed or Apple-notarized; operating system security prompts may appear. CI tests and builds passed on all three platforms, but actual end-to-end transfers and UI interactions require device verification.
+
+          **Source and third-party notices:** The source is linked automatically to this release. Bundled [gdirect v0.13.2](https://github.com/mizorewww/gdirect/tree/v0.13.2) is GPL-2.0-or-later; see the repository's THIRD_PARTY.md.
+          EOF
+      - name: Create official non-prerelease and mark latest
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$STABLE_TAG" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --title "gdirect IDM v0.4.0" \
+            --notes-file RELEASE_NOTES.md \
+            --latest
+      - name: Verify stable release assets before cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh release view "$STABLE_TAG" --json isPrerelease --jq '.isPrerelease')" = false
+          test "$(gh release view "$STABLE_TAG" --json isDraft --jq '.isDraft')" = false
+          test "$(gh release view "$STABLE_TAG" --json assets --jq '.assets | length')" -eq 4
+          gh release download "$STABLE_TAG" --dir stable-verification --pattern '*.zip' --pattern '*.dmg' --pattern 'SHA256SUMS'
+          (cd stable-verification && sha256sum --check SHA256SUMS)
+      - name: Delete obsolete Preview releases and their tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tag in \
+            preview-f72d6d2 \
+            preview-fde4804 \
+            preview-e97011b \
+            preview-24929dd \
+            preview-567c9e3; do
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            echo "Removed old prerelease: $tag"
+          done
+          gh release view "$STABLE_TAG" --json url --jq '.url'
