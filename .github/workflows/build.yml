@@ -40,21 +40,21 @@ jobs:
         run: go mod tidy
       - name: Run unit tests
         run: go test ./... -count=1
-      - name: Build MyGo Native UI without installers
-        run: go tool mygo build -skip-installer -skip-dmg -platform "${{ matrix.platform }}"
-      - name: Package portable ZIP
+      - name: Build MyGo native UI and macOS drag-to-Applications DMG
+        run: go tool mygo build -skip-installer -platform "${{ matrix.platform }}"
+      - name: Prepare release package
         run: python scripts/package_portable.py --platform "${{ matrix.resource }}"
-      - name: Upload portable ZIP
+      - name: Upload ZIP or DMG
         uses: actions/upload-artifact@v4
         with:
           name: gdiretc-idm-${{ matrix.resource }}
-          path: portable/*.zip
+          path: portable/*
           retention-days: 14
           if-no-files-found: error
 
   publish-preview:
     if: github.ref == 'refs/heads/main'
-    name: Publish portable preview
+    name: Publish Windows portable + Mac DMGs
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -64,12 +64,12 @@ jobs:
         with:
           pattern: gdiretc-idm-*
           path: artifact-packages
-      - name: Collect portable archives
+      - name: Collect verified ZIP and DMG assets
         shell: bash
         run: |
           set -euo pipefail
           mkdir release-files
-          find artifact-packages -type f -name '*.zip' -exec cp -v {} release-files/ \;
+          find artifact-packages -type f \( -name '*.zip' -o -name '*.dmg' \) -exec cp -v {} release-files/ \;
           test "$(find release-files -type f | wc -l)" -ge 3
           cd release-files
           sha256sum * > SHA256SUMS
@@ -80,5 +80,5 @@ jobs:
         run: |
           tag="preview-${GITHUB_SHA:0:7}"
           gh release create "$tag" release-files/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-            --title "gdirect IDM Native Portable v0.3 Preview" \
-            --notes "PORTABLE ONLY: extract Windows ZIP and run EXE; extract Mac ZIP and open .app. No Setup installer, no DMG. MyGo Native UI with neutral tactile button states, right-click/remove, progress, tray, and gdirect anonymous public-file downloads. Windows builds may display SmartScreen; unsigned/unnotarized macOS preview may need Open Anyway. End-to-end transfers still require device testing."
+            --title "gdirect IDM Native v0.3 Portable Windows + Mac DMG Preview" \
+            --notes "Windows is portable ZIP (extract and run EXE); macOS uses a native drag-to-Applications DMG (no Windows Setup installer). MyGo Native UI with neutral tactile button states, right-click/remove, progress, tray, and gdirect anonymous public-file downloads. Windows builds may display SmartScreen; unsigned/unnotarized macOS preview may need Open Anyway. End-to-end transfers still require device testing."
