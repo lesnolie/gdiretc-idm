@@ -23,6 +23,7 @@ func main(){
    StateKey:"main",Content:ui.View(screen.view),
   })
   screen.win=win
+  screen.loadRoutes(false)
   menu:=mygo.NewMenu([]*mygo.MenuItem{
    {Role:mygo.RoleAppMenu},
    {Label:"任务",Submenu:[]*mygo.MenuItem{
@@ -66,7 +67,7 @@ func (s *downloadUI) poll(){
   clip:=mygo.Clipboard.ReadText()
   s.win.Update(func(){
    s.items=tasks
-   if !s.showNew&&s.watchClipboard&&clip!=s.lastClipboard{
+   if !s.showNew&&clip!=s.lastClipboard{
     s.lastClipboard=clip
     if _,err:=s.service.Validate(clip);err==nil{s.prompt(clip)}
    }else if clip!=s.lastClipboard {s.lastClipboard=clip}
