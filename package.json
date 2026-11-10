@@ -1,0 +1,6 @@
+{
+  "name":"gdiretc-idm","version":"0.1.0","private":true,"type":"module",
+  "scripts":{"dev":"mygo dev","dev:web":"vite","build":"mygo build","build:web":"vite build","generate":"mygo generate"},
+  "dependencies":{"mygo-runtime":"0.8.3"},
+  "devDependencies":{"mygo-cli":"0.8.3","typescript":"^5.9.3","vite":"^7.2.0"}
+}

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+build/
+.mygo/
+src/mygo.ts
+resources/darwin-*/bin/
+resources/windows-*/bin/
+*.aria2
+*.part
+.DS_Store
