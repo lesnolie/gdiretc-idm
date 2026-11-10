@@ -1,7 +1,7 @@
 name: Preview builds
 on:
   push:
-    branches: [main]
+    branches: [main, feat/native-idm-v02]
   workflow_dispatch:
 
 concurrency:
@@ -15,7 +15,7 @@ jobs:
   build:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -25,25 +25,24 @@ jobs:
           - {label: "macOS Intel", os: macos-15-intel, platform: "darwin/amd64", resource: darwin-amd64}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.27.3'
           cache: false
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - name: Generate geometric G icons
+        run: go run ./cmd/genicon
       - name: Bundle verified upstream gdirect
         run: python scripts/prepare_helper.py --platform "${{ matrix.resource }}"
-      - name: Install dependencies
-        run: |
-          go mod tidy
-          bun install
-      - name: Test Go packages
+      - name: Resolve Go dependencies
+        run: go mod tidy
+      - name: Run unit tests
         run: go test ./... -count=1
-      - name: Build desktop app and installer
-        run: bun run build -- -platform "${{ matrix.platform }}"
-      - name: Preview artifact
+      - name: Build MyGo Native UI installers
+        run: go tool mygo build -platform "${{ matrix.platform }}"
+      - name: Upload test artifacts
         uses: actions/upload-artifact@v4
         with:
           name: gdiretc-idm-${{ matrix.resource }}
@@ -52,35 +51,32 @@ jobs:
           if-no-files-found: error
 
   publish-preview:
-    name: Publish preview release
+    if: github.ref == 'refs/heads/main'
+    name: Publish installable preview
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download validated build artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           pattern: gdiretc-idm-*
           path: artifact-packages
-      - name: Prepare installer assets
+      - name: Collect platform installers
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p release-files
-          find artifact-packages -type f \( -name '*.dmg' -o -name '*setup*.exe' \) -print -exec cp -v {} release-files/ \;
-          count=$(find release-files -type f | wc -l)
-          test "$count" -ge 3 || { echo "Expected Windows + two macOS installers"; exit 1; }
+          mkdir release-files
+          find artifact-packages -type f \( -name '*.dmg' -o -name '*setup*.exe' \) -exec cp -v {} release-files/ \;
+          test "$(find release-files -type f | wc -l)" -ge 3
           cd release-files
           sha256sum * > SHA256SUMS
-      - name: Publish a prerelease for manual testing
-        shell: bash
+      - name: Publish prerelease
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          set -euo pipefail
           tag="preview-${GITHUB_SHA:0:7}"
-          gh release create "$tag" release-files/* \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --prerelease --title "gdirect IDM preview (${GITHUB_SHA:0:7})" \
-            --notes "Unsigned development preview: Windows x64, macOS Apple Silicon and Intel. Only publicly downloadable Google Drive files; no OAuth needed. Real-world direct IP reachability has not yet been validated. macOS Gatekeeper and Windows SmartScreen may warn. gdirect (GPL-2.0-or-later) source: https://github.com/mizorewww/gdirect/tree/v0.13.2"
+          gh release create "$tag" release-files/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "gdirect IDM Native v0.2 Preview" \
+            --notes "MyGo Native UI: no WebView, no console popups, filename detection, clipboard monitoring, right-click/remove, progress, tray and icon. Unsigned test build. Google Drive public links only; no OAuth. End-to-end transfer behavior needs device verification."
