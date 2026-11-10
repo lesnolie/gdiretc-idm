@@ -79,8 +79,7 @@ func (s *Service) Start(raw,dest string,total int64)(Task,error){
  if dest=="."||filepath.Base(dest)=="."{return Task{},errors.New("invalid destination")}
  st,err:=os.Stat(filepath.Dir(dest))
  if err!=nil||!st.IsDir(){return Task{},errors.New("destination folder does not exist")}
- if _,err:=os.Lstat(dest);err==nil{return Task{},errors.New("destination already exists")}
- if !errors.Is(err,os.ErrNotExist){return Task{},err}
+ if _,e:=os.Lstat(dest);e==nil{return Task{},errors.New("destination already exists")}else if !errors.Is(e,os.ErrNotExist){return Task{},e}
  s.mu.Lock()
  defer s.mu.Unlock()
  for _,j:=range s.tasks{
