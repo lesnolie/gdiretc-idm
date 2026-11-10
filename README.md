@@ -1,15 +1,33 @@
-# gdiretc-idm
+# gdirect IDM
 
-IDM-style lightweight Windows/macOS downloader for publicly shared Google Drive files.
+A native [MyGo](https://mygo.egoist.dev/docs/ui) Google Drive **public-file downloader** inspired by Internet Download Manager. Built with Go-only native UI (no WebView, no HTML, no JavaScript).
 
-**Goal:** Copy Google Drive link → choose save path and filename → download directly with a bundled [gdirect](https://github.com/mizorewww/gdirect) helper. No Google login or OAuth configuration for public files.
+**Workflow:** Copy a Google Drive public file URL → native download dialog detects original filename → rename/select destination → download via bundled [gdirect](https://github.com/mizorewww/gdirect) → pause/resume/remove/reveal from the task list.
 
-- MyGo desktop UI (Go + TypeScript).
-- Strict Drive URL validation and clipboard monitoring.
-- Native Save dialog, download list, stop/resume actions.
-- gdirect v0.13.2 packaged as an internal helper, not installed separately.
-- CI preview builds for Windows x64 and macOS Intel/Apple Silicon.
+## Features (v0.2 preview)
+- Google Drive file URL allowlist (no other providers).
+- Native MyGo toolbar, sortable/scrollable table, context menus, save dialog and Windows/macOS tray.
+- Visible file progress, transferred bytes, speed, and ETA when a public file exposes its total size. When total size cannot be determined, progress remains indeterminate rather than pretending to know.
+- Direct-only Google endpoint selection by gdirect and SQLite IP caching; no Google login/OAuth for public files.
+- Windows helper processes do not open a console window.
+- Geometric g application and tray icon.
+- User chooses whether removing a task also deletes the local file. Running downloads are stopped before deletion.
+- Windows x64, macOS Apple Silicon and macOS Intel preview builds.
 
-**Status:** development. Windows/macOS installers and real public-file network transfers are not validated yet. [Build workflow](https://github.com/lesnolie/gdiretc-idm/actions).
+### Limitations
+Google's quota/download restrictions and network reachability still apply. Folder links and private files are unsupported. No proxy is configured by this program, but the system routing policy can affect connections. Pausing is process cancellation with aria2 control files preserved for resumption, not an in-process aria2 pause. A transfer's bytes are sampled from the actual growing output file (upstream uses `file-allocation=none`).
 
-Private or download-restricted Drive files are not supported. Direct reachability depends on the user's network; Google quotas still apply. Bundled gdirect is GPL-2.0-or-later; redistributors must meet applicable license obligations.
+## Build
+Requires Go 1.27.3 or later. No Node, Bun, WebView or frontend dependencies.
+
+```shell
+go mod tidy
+go run ./cmd/genicon
+go test ./...
+go tool mygo build -platform windows/amd64
+```
+
+The GitHub Actions workflow retrieves **gdirect v0.13.2**, verifies SHA-256 against upstream's signed release checksum list (checksum integrity only; not a cryptographic signature of its author), packages the verified helper, and produces three platform-specific installers.
+
+## License
+Bundled gdirect uses **GPL-2.0-or-later**. Redistribution must include applicable license notices and corresponding source obligations; see THIRD_PARTY.md.

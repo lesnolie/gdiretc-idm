@@ -1,10 +1,10 @@
-node_modules/
-dist/
 build/
+dist/
 .mygo/
-src/mygo.ts
-resources/darwin-*/bin/
 resources/windows-*/bin/
+resources/darwin-*/bin/
+resources/icon.png
+resources/tray.png
 *.aria2
 *.part
 .DS_Store
