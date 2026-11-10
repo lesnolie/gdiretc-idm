@@ -4,14 +4,16 @@ A native [MyGo](https://mygo.egoist.dev/docs/ui) Google Drive **public-file down
 
 **Workflow:** Copy a Google Drive public file URL → native download dialog detects original filename → rename/select destination → download via bundled [gdirect](https://github.com/mizorewww/gdirect) → pause/resume/remove/reveal from the task list.
 
-## Features (v0.3 portable preview)
-- Google Drive file URL allowlist (no other providers).
+## Features (v0.4 preview)
+- Google Drive file URL allowlist (no other providers). Clipboard recognition is always on while running, with no redundant checkbox.
 - Native MyGo toolbar, sortable/scrollable table, context menus, save dialog and Windows/macOS tray.
-- Visible file progress, transferred bytes, speed, and ETA when a public file exposes its total size. When total size cannot be determined, progress remains indeterminate rather than pretending to know.
+- Compact progress track fixed to a consistent width, displaying the same normalized 0–100% as its numerical label. When total size is unknown, progress stays indeterminate.
+- Filename suggestions repair Google Drive copy names such as `movie.mp4 的副本` → `movie 的副本.mp4` and use a trusted public download MIME type as an extension hint when available.
 - Direct-only Google endpoint selection by gdirect and SQLite IP caching; no Google login/OAuth for public files.
 - Windows helper processes do not open a console window.
 - Geometric g application and tray icon.
-- User chooses whether removing a task also deletes the local file. Running downloads are stopped before deletion.
+- Right-click or toolbar **Restart Download** removes the existing file and aria2 resume data after stopping the helper, then starts from zero; **Resume** preserves partial data.
+- A native Google IP selection dialog offers Auto (recommended: cached fastest route and fallback) plus scanned IPs with observed latency. Manual pinning uses gdirect's `--ip`/`--sni` and disables automatic failover. User can apply a chosen route to an active task with stop/resume; reconnect success still depends on network.
 - Windows x64, macOS Apple Silicon and macOS Intel preview builds.
 
 ### Limitations
