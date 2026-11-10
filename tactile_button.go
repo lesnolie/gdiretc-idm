@@ -26,8 +26,8 @@ type buttonPalette struct{
  top, bottom ui.Color
  hoverTop, hoverBottom ui.Color
  edge, label ui.Color
- topLight, bottomShade float64
- contact, lift float64
+ topLight, bottomShade float32
+ contact, lift float32
 }
 
 func buttonColors(variant buttonVariant) buttonPalette {
@@ -89,10 +89,11 @@ func styleTactileButton(b ui.Element, variant buttonVariant, size buttonSize) ui
  if pressed{top,bottom=p.bottom,p.top}
  b.NoShadow().Border(1*u,p.edge).
   Gradient(top,bottom,180).TextColor(p.label)
+ if variant==buttonPrimary{b.TextShadow(0,-u,0,ui.RGBA(0,0,0,0.28))}
 
  if pressed{
   // Same two inner and two outer material layers as the resting state.
-  shade:=0.14
+  shade:=float32(0.14)
   if variant==buttonPrimary{shade=0.40}
   b.InsetShadow(0,1*u,2*u,0,ui.RGBA(0,0,0,shade)).
    InsetShadow(0,-1*u,0,0,ui.RGBA(255,255,255,0.90)).
