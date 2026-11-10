@@ -27,7 +27,7 @@ def main(platform: str) -> None:
  name = f"gdirect-{VERSION}-{target}.{ext}"
  prefix = f"https://github.com/mizorewww/gdirect/releases/download/v{VERSION}"
  sums = download(f"{prefix}/SHA256SUMS").decode("utf-8")
- match = re.search(rf"(?m)^([0-9a-fA-F]{{64}})\\s+\\*?{re.escape(name)}\\s*$", sums)
+ match = re.search(rf"(?m)^([0-9a-fA-F]{{64}})\s+\*?{re.escape(name)}\s*$", sums)
  if not match:
   raise RuntimeError("Upstream checksum not found: " + name)
  archive = download(f"{prefix}/{name}")
