@@ -1,7 +1,7 @@
 name: Preview builds
 on:
   push:
-    branches: [main, feat/native-idm-v02]
+    branches: [main, feat/portable-tactile-v03]
   workflow_dispatch:
 
 concurrency:
@@ -40,19 +40,21 @@ jobs:
         run: go mod tidy
       - name: Run unit tests
         run: go test ./... -count=1
-      - name: Build MyGo Native UI installers
-        run: go tool mygo build -platform "${{ matrix.platform }}"
-      - name: Upload test artifacts
+      - name: Build MyGo Native UI without installers
+        run: go tool mygo build -skip-installer -skip-dmg -platform "${{ matrix.platform }}"
+      - name: Package portable ZIP
+        run: python scripts/package_portable.py --platform "${{ matrix.resource }}"
+      - name: Upload portable ZIP
         uses: actions/upload-artifact@v4
         with:
           name: gdiretc-idm-${{ matrix.resource }}
-          path: build/
+          path: portable/*.zip
           retention-days: 14
           if-no-files-found: error
 
   publish-preview:
     if: github.ref == 'refs/heads/main'
-    name: Publish installable preview
+    name: Publish portable preview
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -62,12 +64,12 @@ jobs:
         with:
           pattern: gdiretc-idm-*
           path: artifact-packages
-      - name: Collect platform installers
+      - name: Collect portable archives
         shell: bash
         run: |
           set -euo pipefail
           mkdir release-files
-          find artifact-packages -type f \( -name '*.dmg' -o -name '*setup*.exe' \) -exec cp -v {} release-files/ \;
+          find artifact-packages -type f -name '*.zip' -exec cp -v {} release-files/ \;
           test "$(find release-files -type f | wc -l)" -ge 3
           cd release-files
           sha256sum * > SHA256SUMS
@@ -78,5 +80,5 @@ jobs:
         run: |
           tag="preview-${GITHUB_SHA:0:7}"
           gh release create "$tag" release-files/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-            --title "gdirect IDM Native v0.2 Preview" \
-            --notes "MyGo Native UI: no WebView, no console popups, filename detection, clipboard monitoring, right-click/remove, progress, tray and icon. Unsigned test build. Google Drive public links only; no OAuth. End-to-end transfer behavior needs device verification."
+            --title "gdirect IDM Native Portable v0.3 Preview" \
+            --notes "PORTABLE ONLY: extract Windows ZIP and run EXE; extract Mac ZIP and open .app. No Setup installer, no DMG. MyGo Native UI with neutral tactile button states, right-click/remove, progress, tray, and gdirect anonymous public-file downloads. Windows builds may display SmartScreen; unsigned/unnotarized macOS preview may need Open Anyway. End-to-end transfers still require device testing."
