@@ -41,6 +41,7 @@ type job struct {
  busy bool
  prevBytes int64
  prevTime time.Time
+ lastSpeed time.Time
 }
 
 type Service struct {
@@ -119,15 +120,31 @@ func (s *Service) run(ctx context.Context,id string,j *job){
  args=append(args,routeArgs(j.task.IP,j.task.SNI)...)
  cmd:=exec.CommandContext(ctx,s.helper,args...)
  hideHelperWindow(cmd)
- var output limitedBuffer
- cmd.Stdout=&output
- cmd.Stderr=&output
+ output:=&progressCapture{onSpeed:func(speed float64){
+  s.mu.Lock()
+  if s.tasks[id]==j{
+   j.task.Speed=speed
+   j.lastSpeed=time.Now()
+  }
+  s.mu.Unlock()
+ }}
+ cmd.Stdout=output
+ cmd.Stderr=output
  err:=cmd.Run()
  s.mu.Lock()
  defer s.mu.Unlock()
  current:=s.tasks[id]
  if current!=j{return}
- if stat,e:=os.Stat(j.task.Path);e==nil{j.task.Bytes=stat.Size()}
+ if complete,total,e:=readAria2Progress(j.task.Path);e==nil{
+  if complete>j.task.Bytes{j.task.Bytes=complete}
+  if total>0{j.task.Total=total}
+ }
+ if err==nil{
+  if stat,e:=os.Stat(j.task.Path);e==nil{
+   j.task.Bytes=stat.Size()
+   j.task.Total=j.task.Bytes
+  }
+ }
  j.task.Speed=0
  j.task.ETASeconds=0
  j.task.Finished=time.Now()
@@ -138,7 +155,6 @@ func (s *Service) run(ctx context.Context,id string,j *job){
   j.task.Error=fmt.Sprintf("%v: %s",err,strings.TrimSpace(output.String()))
  }else{
   j.task.State="complete"
-  if j.task.Total<=0{j.task.Total=j.task.Bytes}
  }
  j.cancel=nil
 }
@@ -159,20 +175,16 @@ func (s *Service) List()[]Task{
  for _,j:=range s.tasks{
   t:=&j.task
   if t.State=="running"||t.State=="stopping"{
-   if st,err:=os.Stat(t.Path);err==nil{
-    n:=st.Size()
-    if n<t.Bytes{n=t.Bytes}
-    t.Bytes=n
+   // gdirect uses parallel HTTP ranges. A sparse file can appear full
+   // sized long before it is complete; never use os.Stat.Size for progress.
+   if done,total,err:=readAria2Progress(t.Path);err==nil{
+    if done>t.Bytes{t.Bytes=done}
+    if total>0{t.Total=total}
    }
-   elapsed:=now.Sub(j.prevTime).Seconds()
-   if elapsed>=0.6{
-    instant:=float64(t.Bytes-j.prevBytes)/elapsed
-    if instant<0{instant=0}
-    if j.prevTime.Equal(t.Started){t.Speed=instant}else{t.Speed=t.Speed*0.55+instant*0.45}
-    j.prevTime=now
-    j.prevBytes=t.Bytes
-    if t.Total>t.Bytes&&t.Speed>1024{t.ETASeconds=int64(float64(t.Total-t.Bytes)/t.Speed)}else{t.ETASeconds=0}
-   }
+   if now.Sub(j.lastSpeed)>3*time.Second{t.Speed=0}
+   if t.Total>t.Bytes&&t.Speed>1024{
+    t.ETASeconds=int64(float64(t.Total-t.Bytes)/t.Speed)
+   }else{t.ETASeconds=0}
   }
   all=append(all,*t)
  }
@@ -202,7 +214,7 @@ func (s *Service) Resume(id string)(Task,error){
  ctx,cancel:=context.WithCancel(context.Background())
  j.task.State="running";j.task.Error="";j.task.Finished=time.Time{}
  j.cancel=cancel;j.done=make(chan struct{})
- j.prevTime=time.Now();j.prevBytes=j.task.Bytes
+ j.prevTime=time.Now();j.prevBytes=j.task.Bytes;j.lastSpeed=time.Time{}
  go s.run(ctx,id,j)
  return j.task,nil
 }
@@ -276,6 +288,7 @@ func (s *Service) restartJob(id string,j *job,fromScratch bool,route RouteOption
  j.done=make(chan struct{})
  j.prevTime=now
  j.prevBytes=j.task.Bytes
+ j.lastSpeed=time.Time{}
  j.busy=false
  go s.run(ctx,id,j)
  return j.task,nil
