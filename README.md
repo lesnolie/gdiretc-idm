@@ -17,10 +17,10 @@ A native [MyGo](https://mygo.egoist.dev/docs/ui) Google Drive **public-file down
 ### Limitations
 Google's quota/download restrictions and network reachability still apply. Folder links and private files are unsupported. No proxy is configured by this program, but the system routing policy can affect connections. Pausing is process cancellation with aria2 control files preserved for resumption, not an in-process aria2 pause. A transfer's bytes are sampled from the actual growing output file (upstream uses `file-allocation=none`).
 
-## Portable, no installation
+## Windows portable ZIP / macOS drag-to-Applications DMG
 
 - **Windows:** Download `gdirect-idm-portable-windows-x64.zip`, extract the entire `gdirect IDM` folder, and double-click `gdirect IDM.exe`. Keep the bundled `resources` next to the executable. No MSI, NSIS installer or uninstall entry.
-- **macOS (Apple Silicon / Intel):** Download the matching `gdirect-idm-portable-macos-*.zip`, extract, and open `gdirect IDM.app`. No DMG or drag-to-Applications step required. Unsigned/unnotarized testing builds can be blocked by Gatekeeper; approve from Privacy & Security or use right-click → Open when permitted.
+- **macOS (Apple Silicon / Intel):** Download the matching `gdirect-idm-macos-*.dmg`, double-click to mount, drag `gdirect IDM.app` onto the `Applications` shortcut, eject the disk image, and launch from Applications. Removal is by dragging the app to Trash; preferences/cache may remain in the user's data directory. Unsigned/unnotarized preview builds may be blocked by Gatekeeper; use the system's Privacy & Security approval when permitted.
 - **Tactile buttons:** Native MyGo Buttons have neutral material tokens for primary, secondary, tertiary, ghost and text. Hover/press/focus/disabled remain native and accessible.
 - Portable does not mean zero preferences: the runtime may still use the user data directory for state and the gdirect IP cache, but no installer is registered.
 
@@ -35,7 +35,7 @@ go tool mygo build -skip-installer -skip-dmg -platform windows/amd64
 python scripts/package_portable.py --platform windows-amd64
 ```
 
-The GitHub Actions workflow retrieves **gdirect v0.13.2**, verifies SHA-256 against upstream's signed release checksum list (checksum integrity only; not a cryptographic signature of its author), packages the verified helper, and produces three platform-specific **portable ZIP archives only**.
+The GitHub Actions workflow retrieves **gdirect v0.13.2**, verifies SHA-256 against upstream's signed release checksum list (checksum integrity only; not a cryptographic signature of its author), packages the verified helper, and produces a **portable Windows ZIP** and **native macOS drag-to-Applications DMGs** (Apple Silicon and Intel).
 
 ## License
 Bundled gdirect uses **GPL-2.0-or-later**. Redistribution must include applicable license notices and corresponding source obligations; see THIRD_PARTY.md.
