@@ -8,3 +8,4 @@ resources/tray.png
 *.aria2
 *.part
 .DS_Store
+portable/
