@@ -1,0 +1,48 @@
+name: Preview builds
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {label: "Windows x64", os: windows-2025, platform: "windows/amd64", resource: windows-amd64}
+          - {label: "macOS Apple Silicon", os: macos-15, platform: "darwin/arm64", resource: darwin-arm64}
+          - {label: "macOS Intel", os: macos-15-intel, platform: "darwin/amd64", resource: darwin-amd64}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Bundle verified upstream gdirect
+        run: python scripts/prepare_helper.py --platform "${{ matrix.resource }}"
+      - name: Install dependencies
+        run: |
+          go mod tidy
+          bun install
+      - name: Test Go packages
+        run: go test ./... -count=1
+      - name: Build desktop app and installer
+        run: bun run build -- -platform "${{ matrix.platform }}"
+      - name: Preview artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gdiretc-idm-${{ matrix.resource }}
+          path: build/
+          retention-days: 14
+          if-no-files-found: error
