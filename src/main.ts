@@ -40,10 +40,10 @@ function showDialog(url = "") {
  dialogOpen = true;
  urlInput.value = url; pathInput.value = "";
  suggestedFilename = ""; pathInput.placeholder = "点击浏览，选择目录并重命名";
- void inspectFilename(url);
  hint.classList.remove("error");
  hint.textContent = "选择保存位置和文件名称，下载前不会自动执行";
  overlay.classList.remove("hidden"); urlInput.focus();
+ void inspectFilename(url);
 }
 function hideDialog() { dialogOpen = false; filenameRequest++; overlay.classList.add("hidden"); }
 async function inspectFilename(url: string) {
