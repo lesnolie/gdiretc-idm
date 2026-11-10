@@ -66,6 +66,12 @@ func NewService() *Service {
  return s
 }
 
+func (s *Service) Validate(raw string)(string,error){
+ file,err:=driveurl.Parse(strings.TrimSpace(raw))
+ if err!=nil{return "",err}
+ return file.ID,nil
+}
+
 func (s *Service) Status() string {
  if s.helperErr!=nil{return "gdirect unavailable: "+s.helperErr.Error()}
  return "Ready · Google Drive public files"
