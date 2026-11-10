@@ -22,8 +22,8 @@ import (
 
 type savedEndpoint struct {ip string; sni string}
 var (
- metaTag = regexp.MustCompile(`(?is)<meta\\b[^>]*>`)
- attribute = regexp.MustCompile(`(?is)([a-zA-Z0-9_:-]+)\\s*=\\s*(?:"([^"]*)"|'([^']*)')`)
+ metaTag = regexp.MustCompile(`(?is)<meta\b[^>]*>`)
+ attribute = regexp.MustCompile(`(?is)([a-zA-Z0-9_:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 )
 func parseSavedEndpoints(raw string) []savedEndpoint {
  var entries []savedEndpoint
