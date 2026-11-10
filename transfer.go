@@ -28,6 +28,8 @@ type Task struct {
  Total int64
  Speed float64
  ETASeconds int64
+ IP string
+ SNI string
  Started time.Time
  Finished time.Time
 }
@@ -36,6 +38,7 @@ type job struct {
  task Task
  cancel context.CancelFunc
  done chan struct{}
+ busy bool
  prevBytes int64
  prevTime time.Time
 }
@@ -78,6 +81,16 @@ func (s *Service) Status() string {
 }
 
 func (s *Service) Start(raw,dest string,total int64)(Task,error){
+ return s.StartRouted(raw,dest,total,RouteOption{})
+}
+
+func (s *Service) StartRouted(raw,dest string,total int64,route RouteOption)(Task,error){
+ if err:=checkRoute(route.IP,route.SNI);err!=nil{return Task{},err}
+ if route.IP!=""{
+  verified,err:=s.ResolveRoute(route.IP)
+  if err!=nil{return Task{},err}
+  if verified.SNI!=route.SNI{return Task{},errors.New("cached route identity has changed")}
+ }
  if s.helperErr!=nil{return Task{},s.helperErr}
  if _,err:=driveurl.Parse(strings.TrimSpace(raw));err!=nil{return Task{},err}
  if !filepath.IsAbs(dest){return Task{},errors.New("choose an absolute save path")}
@@ -94,7 +107,7 @@ func (s *Service) Start(raw,dest string,total int64)(Task,error){
  id:=fmt.Sprintf("%d",time.Now().UnixNano())
  ctx,cancel:=context.WithCancel(context.Background())
  now:=time.Now()
- j:=&job{task:Task{ID:id,URL:strings.TrimSpace(raw),Path:dest,Name:filepath.Base(dest),State:"running",Total:total,Started:now},cancel:cancel,done:make(chan struct{}),prevTime:now}
+ j:=&job{task:Task{ID:id,URL:strings.TrimSpace(raw),Path:dest,Name:filepath.Base(dest),State:"running",Total:total,IP:route.IP,SNI:route.SNI,Started:now},cancel:cancel,done:make(chan struct{}),prevTime:now}
  s.tasks[id]=j
  go s.run(ctx,id,j)
  return j.task,nil
@@ -102,7 +115,9 @@ func (s *Service) Start(raw,dest string,total int64)(Task,error){
 
 func (s *Service) run(ctx context.Context,id string,j *job){
  defer close(j.done)
- cmd:=exec.CommandContext(ctx,s.helper,"download",j.task.URL,"-o",j.task.Path)
+ args:=[]string{"download",j.task.URL,"-o",j.task.Path}
+ args=append(args,routeArgs(j.task.IP,j.task.SNI)...)
+ cmd:=exec.CommandContext(ctx,s.helper,args...)
  hideHelperWindow(cmd)
  var output limitedBuffer
  cmd.Stdout=&output
@@ -168,6 +183,7 @@ func (s *Service) Stop(id string)error{
  s.mu.Lock();defer s.mu.Unlock()
  j:=s.tasks[id]
  if j==nil{return errors.New("download not found")}
+ if j.busy{return errors.New("download is being changed")}
  if j.task.State!="running"||j.cancel==nil{return errors.New("download is not running")}
  j.task.State="stopping"
  j.cancel()
@@ -178,6 +194,7 @@ func (s *Service) Resume(id string)(Task,error){
  s.mu.Lock();defer s.mu.Unlock()
  j:=s.tasks[id]
  if j==nil{return Task{},errors.New("download not found")}
+ if j.busy{return Task{},errors.New("download is being changed")}
  if j.task.State!="stopped"&&j.task.State!="failed"{return Task{},errors.New("only stopped or failed downloads may resume")}
  if j.done!=nil{
   select{case <-j.done:default:return Task{},errors.New("previous download is still stopping")}
@@ -193,11 +210,15 @@ func (s *Service) Remove(id string,deleteFiles bool)error{
  s.mu.Lock()
  j:=s.tasks[id]
  if j==nil{s.mu.Unlock();return errors.New("download not found")}
+ if j.busy{s.mu.Unlock();return errors.New("download is being changed")}
+ j.busy=true
  if j.cancel!=nil{j.cancel()}
  done:=j.done
  s.mu.Unlock()
  if done!=nil{
-  select{case <-done:case <-time.After(12*time.Second):return errors.New("download did not stop; file was not deleted")}
+  select{case <-done:case <-time.After(12*time.Second):
+   s.mu.Lock();j.busy=false;s.mu.Unlock()
+   return errors.New("download did not stop; file was not deleted")}
  }
  s.mu.Lock()
  if s.tasks[id]!=j{s.mu.Unlock();return errors.New("download changed while removing")}
@@ -209,6 +230,85 @@ func (s *Service) Remove(id string,deleteFiles bool)error{
  }
  return nil
 }
+
+func (s *Service) takeForChange(id string)(*job,error){
+ s.mu.Lock()
+ j:=s.tasks[id]
+ if j==nil{s.mu.Unlock();return nil,errors.New("download not found")}
+ if j.busy{s.mu.Unlock();return nil,errors.New("download already has an operation in progress")}
+ j.busy=true
+ done:=j.done
+ if j.cancel!=nil{j.cancel()}
+ s.mu.Unlock()
+ if done!=nil{
+  select{
+  case <-done:
+  case <-time.After(15*time.Second):
+   s.mu.Lock();j.busy=false;s.mu.Unlock()
+   return nil,errors.New("download process did not stop; keeping existing data")
+  }
+ }
+ return j,nil
+}
+func (s *Service) restartJob(id string,j *job,fromScratch bool,route RouteOption)(Task,error){
+ if fromScratch{
+  for _,path:=range []string{j.task.Path+".aria2",j.task.Path}{
+   if err:=os.Remove(path);err!=nil&&!errors.Is(err,os.ErrNotExist){
+    s.mu.Lock();j.busy=false;s.mu.Unlock()
+    return Task{},fmt.Errorf("cannot remove old download data: %w",err)
+   }
+  }
+ }
+ s.mu.Lock()
+ defer s.mu.Unlock()
+ if s.tasks[id]!=j{j.busy=false;return Task{},errors.New("task was removed while changing route")}
+ ctx,cancel:=context.WithCancel(context.Background())
+ now:=time.Now()
+ j.task.IP=route.IP
+ j.task.SNI=route.SNI
+ j.task.State="running"
+ j.task.Error=""
+ j.task.Speed=0
+ j.task.ETASeconds=0
+ j.task.Finished=time.Time{}
+ if fromScratch{j.task.Bytes=0}
+ j.cancel=cancel
+ j.done=make(chan struct{})
+ j.prevTime=now
+ j.prevBytes=j.task.Bytes
+ j.busy=false
+ go s.run(ctx,id,j)
+ return j.task,nil
+}
+
+// Restart is deliberately different from Resume: it deletes the previous
+// output and aria2 state after the subprocess has stopped, then starts at 0.
+func (s *Service) Restart(id string)(Task,error){
+ if s.helperErr!=nil{return Task{},s.helperErr}
+ j,err:=s.takeForChange(id)
+ if err!=nil{return Task{},err}
+ return s.restartJob(id,j,true,RouteOption{IP:j.task.IP,SNI:j.task.SNI})
+}
+
+// SwitchRoute preserves any existing aria2 resume data. Explicit IP
+// disables gdirect's automatic fallback; choose "" to restore auto mode.
+func (s *Service) SwitchRoute(id string,route RouteOption)(Task,error){
+ if err:=checkRoute(route.IP,route.SNI);err!=nil{return Task{},err}
+ if route.IP!=""{
+  verified,err:=s.ResolveRoute(route.IP)
+  if err!=nil{return Task{},err}
+  if verified.SNI!=route.SNI{return Task{},errors.New("cached route TLS identity changed")}
+ }
+ s.mu.Lock()
+ j:=s.tasks[id]
+ if j==nil{s.mu.Unlock();return Task{},errors.New("download not found")}
+ if j.task.State=="complete"{s.mu.Unlock();return Task{},errors.New("completed downloads cannot switch IP")}
+ s.mu.Unlock()
+ j,err:=s.takeForChange(id)
+ if err!=nil{return Task{},err}
+ return s.restartJob(id,j,false,route)
+}
+
 func (s *Service) Reveal(id string)error{
  s.mu.Lock();j:=s.tasks[id];s.mu.Unlock()
  if j==nil{return errors.New("download not found")}
